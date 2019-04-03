@@ -181,21 +181,27 @@ class TabuSearch:
             neighborhood_best = self._best(neighborhood)
 
             while True:
-                if all([self.IfInTabuList(OneNeighbor) for OneNeighbor in neighborhood]): #所有元素是否都为TRUE，如果是返回True，否则返回False。
+                #neighborhood中是否全部在tabu list中
+                if all([self._IfInTabuList(OneNeighbor) for OneNeighbor in neighborhood]): #所有元素是否都为TRUE，如果是返回True，否则返回False。
                     print("TERMINATING - NO SUITABLE NEIGHBORS")
                     return self.KerasModels,  self.best, self._score(self.best)
-                if self.IfInTabuList(neighborhood_best): 
+                
+                #neighborhood_best是否在tabu list中
+                if self._IfInTabuList(neighborhood_best): 
                     #使用 Aspiration 
                     if self._score(neighborhood_best) > self._score(self.best):
                         self.tabu_list.append(neighborhood_best)
                         self.best = deepcopy(neighborhood_best)
                         break
+                    #換一個neighbor作為neighborhood_best
                     else:
                         neighborhood.remove(neighborhood_best)
                         neighborhood_best = self._best(neighborhood)
+                #從current走到neighborhood_best
                 else:
                     self.tabu_list.append(neighborhood_best)
                     self.current = neighborhood_best
+                    #更新self.best
                     if self._score(self.current) > self._score(self.best):
                         self.best = deepcopy(self.current)
                     break
@@ -221,6 +227,9 @@ class TabuSearchCustomized(TabuSearch):
         return test_on_batch[1]
     
     def _neighborhood(self):
+        """
+        return a list of neighbors (with length of _NumOfNeighbor) from current state
+        """
         ##################
         _NumOfNeighbor=50
         ##################
@@ -234,12 +243,16 @@ class TabuSearchCustomized(TabuSearch):
             neighborhood.append(OneNeighbor) #feasible的鄰居放入備選list（neighborhood）
             # neighborhood.append( [i * random.uniform(-1, 1 )  for i in self.current]]) 
         return neighborhood
-    
 
     
-    def IfInTabuList( self, OneNeighbor ):
+    def _IfInTabuList( self, OneNeighbor ):
+        """
+        determine whether a OneNeighbor is in tabulist
+        :param OneNeighbor: a list of weights
+        :return: True if in the tabu list, False if not in the tabu list, 
+        """
         ####################################
-        Threohold_IfInTabuList_MAPE = 0.5
+        Threohold__IfInTabuList_MAPE = 0.5
         ####################################
         for i_tabu_list in self.tabu_list:
             
@@ -247,7 +260,7 @@ class TabuSearchCustomized(TabuSearch):
             y_pred = np.asarray(OneNeighbor)
  
             MAPE = np.mean(np.abs((y_true - y_pred)/(y_true+0.0000001)))
-            if MAPE <=  Threohold_IfInTabuList_MAPE :#MAPE
+            if MAPE <=  Threohold__IfInTabuList_MAPE :#MAPE
                 print('TABU!!!!!!!!!!!', MAPE)
                 return True #在tabu list中
         return False #未在tabu list中
@@ -260,7 +273,7 @@ data_y = return_X_y.target #569, 1 #0惡性 1良性
 #%% 創建神經網路
 from keras import backend as K
 from keras.layers import Dense
-from keras.models import Sequential 
+from keras.models import Sequential, Model as keras_models_Model
 
 model = Sequential()
 model.add(Dense(15, activation='relu', input_shape=(30,)))
@@ -288,18 +301,57 @@ TSRun = TabuSearchCustomized(model, weights, tabu_size=10 , max_steps=10, max_sc
 
 TS_Optimized_Model, TS_Optimized_Weights, TS_Optimized_ObjVal  = TSRun.run()
 #%% obtain the output of an intermediate layer
+#https://keras.io/getting-started/faq/?fbclid=IwAR3Zv35V-vmEy85anudOrlxCExXYwyG6cRL1UR0AaLPU6sZEoBjsbX-8LXQ#how-can-i-obtain-the-output-of-an-intermediate-layer
+
+layer_name = 'IntermediateLayer'
+intermediate_layer_model = keras_models_Model(inputs=model.input,
+                                 outputs=model.get_layer(layer_name).output)
+intermediate_output = intermediate_layer_model.predict(data_x)
+
+"""
+How can I obtain the output of an intermediate layer?
+One simple way is to create a new Model that will output the layers that you are interested in:
 
 from keras.models import Model
 
-layer_name = 'IntermediateLayer'
+model = ...  # create the original model
+
+layer_name = 'my_layer'
 intermediate_layer_model = Model(inputs=model.input,
                                  outputs=model.get_layer(layer_name).output)
-intermediate_output = intermediate_layer_model.predict(data_x)
+intermediate_output = intermediate_layer_model.predict(data)
+Alternatively, you can build a Keras function that will return the output of a certain layer given a certain input, for example:
+
+from keras import backend as K
+
+# with a Sequential model
+get_3rd_layer_output = K.function([model.layers[0].input],
+                                  [model.layers[3].output])
+layer_output = get_3rd_layer_output([x])[0]
+Similarly, you could build a Theano and TensorFlow function directly.
+
+Note that if your model has a different behavior in training and testing phase (e.g. if it uses Dropout, BatchNormalization, etc.), you will need to pass the learning phase flag to your function:
+
+get_3rd_layer_output = K.function([model.layers[0].input, K.learning_phase()],
+                                  [model.layers[3].output])
+
+# output in test mode = 0
+layer_output = get_3rd_layer_output([x, 0])[0]
+
+# output in train mode = 1
+layer_output = get_3rd_layer_output([x, 1])[0]
+
+"""
 #%%
 #%%
 #%%
 #%%
-#%%
+#%%待續
+向量式運算找鄰近解
+Diverse: meta執行幾次後>Intense: 換成SGD
+meta結合最後一層LS
+找一個新的演算法
+
 #%% Path Relinking
 #https://github.com/priitj/grils-t/blob/master/relink.py
 
