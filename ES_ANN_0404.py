@@ -14,20 +14,23 @@ from keras.models import Sequential
 import numpy as np
 
 
-class TabuSearch:
+class ES:
     """
     Conducts tabu search
     """
     __metaclass__ = ABCMeta
 
-    cur_steps = None
+    cur_steps = 0
 
     tabu_size = None
     tabu_list = None
 
     initial_state = None
+    weight1 = None
+    weight2 = None
     current = None
-    best = None
+    best_weight = None
+    best_score = None
 
     max_steps = None
     max_score = None
@@ -76,7 +79,7 @@ class TabuSearch:
             UnflattenWeights.append(TempList)
         return UnflattenWeights    
     
-    def __init__(self, KerasModels, initial_state, tabu_size, max_steps, max_score=None):
+    def __init__(self, KerasModels, weights1, weights2, tabu_size, max_steps, max_score=None):
         """
         :param KerasModels: a Keras model, like keras.engine.sequential.Sequential
         :param initial_state: initial state, should implement __eq__ or __cmp__
@@ -86,11 +89,11 @@ class TabuSearch:
         """
         self.KerasModels = KerasModels
         
-        if isinstance(initial_state, list):
-            WeightsStrucure, FlattenedWeights = self.FlattenWeights(initial_state)
-            self.WeightsStrucure = WeightsStrucure
-            self.initial_state = FlattenedWeights
-            self.best = FlattenedWeights
+        if isinstance(weights1, list) & isinstance(weights2, list):
+            self.WeightsStrucure, self.weights1 = self.FlattenWeights(weights1)
+            _, self.weights2 = self.FlattenWeights(weights1)
+            self.WeightsStrucure = self.WeightsStrucure
+            
         else:
             raise TypeError('initial_state must be a list')
 
@@ -111,12 +114,12 @@ class TabuSearch:
                 raise TypeError('Maximum score must be a numeric type')
         
 
-    def __str__(self):
-        return ('TABU SEARCH: \n' +
+    def __str__(self): 
+        return ('ES: \n' +
                 'CURRENT STEPS: %d \n' +
-                'BEST SCORE: %f \n' +
-                'BEST MEMBER: \n %s ......\n\n') % \
-               (self.cur_steps, self._score(self.best), str([round(i,5) for i in self.best])[:100])
+                'BEST MEMBER: \n %s ......\n' +
+                'BEST SCORE%f \n') % \
+               (self.cur_steps, str(self.best_weight)[:100], self.best_score)
 
     def __repr__(self):
         return self.__str__()
@@ -133,26 +136,7 @@ class TabuSearch:
         self.tabu_list = deque(maxlen=self.tabu_size) 
         self.current = self.initial_state
         self.best = self.initial_state
-
-    @abstractmethod
-    def _score(self, state):
-        """
-        Returns objective function value of a state
-
-        :param state: a state
-        :return: objective function value of state
-        """
-        pass
-
-    @abstractmethod
-    def _neighborhood(self):
-        """
-        Returns list of all members of neighborhood of 
-        state, given self.current
-
-        :return: list of members of neighborhood
-        """
-        pass
+ 
 
     def _best(self, neighborhood):
         """
@@ -162,74 +146,47 @@ class TabuSearch:
         :return: best member of neighborhood
         """
         return neighborhood[argmax([self._score(x) for x in neighborhood])]
-
-    def run(self, verbose=True):
+    
+    def Recombination(self, Population_Parents_Weights, Population_Parents_Sigma, rows): #GenerateParents
         """
-        Conducts tabu search
-
-        :param verbose: indicates whether or not to print progress regularly
-        :return: Keras Models, best state and objective function value of best state
+        Generate New Parents Polulation
         """
-        self._clear()
-        for i in range(self.max_steps):
-            self.cur_steps += 1
-
-            if ((i + 1) % 1 == 0) and verbose:
-                print(self)
-
-            neighborhood = self._neighborhood()
-            neighborhood_best = self._best(neighborhood)
-
-            while True:
-                #neighborhood中是否全部在tabu list中
-                if all([self._IfInTabuList(OneNeighbor) for OneNeighbor in neighborhood]): #所有元素是否都为TRUE，如果是返回True，否则返回False。
-                    print("TERMINATING - NO SUITABLE NEIGHBORS")
-                    return self.KerasModels,  self.best, self._score(self.best)
-                
-                #neighborhood_best是否在tabu list中
-                if self._IfInTabuList(neighborhood_best): 
-                    #使用 Aspiration 
-                    if self._score(neighborhood_best) > self._score(self.best):
-                        self.tabu_list.append(neighborhood_best)
-                        self.best = deepcopy(neighborhood_best)
-                        break
-                    #換一個neighbor作為neighborhood_best
-                    else:
-                        neighborhood.remove(neighborhood_best)
-                        neighborhood_best = self._best(neighborhood)
-                #從current走到neighborhood_best
-                else:
-                    self.tabu_list.append(neighborhood_best)
-                    self.current = neighborhood_best
-                    #更新self.best
-                    if self._score(self.current) > self._score(self.best):
-                        self.best = deepcopy(self.current)
-                    break
-
-            if self.max_score is not None and self._score(self.best) > self.max_score:
-                print("TERMINATING - REACHED MAXIMUM SCORE")
-                return self.best, self._score(self.best)
-        print("TERMINATING - REACHED MAXIMUM STEPS")
-        return self.KerasModels, self.best, self._score(self.best)
-
-#%% 繼承class TabuSearch與客製化函數:_neighborhood、_scoreFlattenWeights、FlattenWeights、UnflattenWeights
-class TabuSearchCustomized(TabuSearch):
-    """
-    Tries to get  
-    """
+        Population_Weights_Recombination = np.zeros(shape = (rows, Population_Parents_Weights.shape[1]))
+        Population_Sigma_Recombination = np.zeros(shape = (rows, Population_Parents_Weights.shape[1]))
+        for index_row, _ in enumerate( Population_Weights_Recombination ):
+            """
+            可能可以平行計算
+            """
+            TwoRowschoiced = np.random.choice(Population_Parents_Weights.shape[0], size=2, replace=False,)
+            Parent1Mask = np.random.randint(2, size=Population_Parents_Weights.shape[1])
+            Parent2Mask = np.full(shape = Population_Parents_Weights.shape[1], fill_value = 1 )  - Parent1Mask
+            
+            Population_Weights_Recombination[index_row,:] = (Population_Parents_Weights[TwoRowschoiced] * [Parent1Mask, Parent2Mask]).sum(axis=0)
+            Population_Sigma_Recombination[index_row,:] = Population_Parents_Sigma[TwoRowschoiced].mean(axis=0)
+        return Population_Weights_Recombination, Population_Sigma_Recombination
+    
     def _score(self, ModifiedWeights):
+        
         """
-        obj. fun.
-        """ 
+        Returns objective function value of a state
+
+        :param state: a state
+        :return: objective function value of state
+        """
+        
         UnflattenedWeights = self.UnflattenWeights(WeightsStrucure = self.WeightsStrucure, ModifiedWeights = ModifiedWeights)
         self.KerasModels.set_weights(UnflattenedWeights)
-        test_on_batch = self.KerasModels.test_on_batch(data_x, data_y, sample_weight=None) # return ['loss', 'acc']
+        test_on_batch = self.KerasModels.test_on_batch(X_train, y_train, sample_weight=None) # return ['loss', 'acc']
         return test_on_batch[1]
     
     def _neighborhood(self):
+        
         """
-        return a list of neighbors (with length of _NumOfNeighbor) from current state
-        """
+        Returns list of all members of neighborhood of 
+        state, given self.current
+
+        :return: list of members of neighborhood (with length of _NumOfNeighbor) from current state
+        """ 
         ##################
         _NumOfNeighbor=50
         ##################
@@ -243,32 +200,138 @@ class TabuSearchCustomized(TabuSearch):
             neighborhood.append(OneNeighbor) #feasible的鄰居放入備選list（neighborhood）
             # neighborhood.append( [i * random.uniform(-1, 1 )  for i in self.current]]) 
         return neighborhood
+    def run(self, verbose=True):
+        """
+        Conducts tabu search
 
-    
-    def _IfInTabuList( self, OneNeighbor ):
+        :param verbose: indicates whether or not to print progress regularly
+        :return: Keras Models, best state and objective function value of best state
         """
-        determine whether a OneNeighbor is in tabulist
-        :param OneNeighbor: a list of weights
-        :return: True if in the tabu list, False if not in the tabu list, 
-        """
-        ####################################
-        Threohold__IfInTabuList_MAPE = 0.5
-        ####################################
-        for i_tabu_list in self.tabu_list:
+        #self._clear()
+        
+        #Step1 initial     
+        
+        Population_Parents_Weights = np.array([self.weights1, self.weights2])         
+        Population_Parents_Sigma = np.full(shape = (ParentsSize, len(self.weights1)), fill_value = InitialSigma ) 
+        Population_Parents_Weights, _ = self.Recombination(Population_Parents_Weights, Population_Parents_Sigma, rows = ParentsSize )
+     
+        self.cur_steps = 0
+        while True:
             
-            y_true = np.asarray(i_tabu_list)
-            y_pred = np.asarray(OneNeighbor)
- 
-            MAPE = np.mean(np.abs((y_true - y_pred)/(y_true+0.0000001)))
-            if MAPE <=  Threohold__IfInTabuList_MAPE :#MAPE
-                print('TABU!!!!!!!!!!!', MAPE)
-                return True #在tabu list中
-        return False #未在tabu list中
+               
+            #Step2 Child
+            ##Discrete Recombination
+            Population_Child_Weights, Population_Child_Sigma = self.Recombination(Population_Parents_Weights, Population_Parents_Sigma, rows = ChildSize )
+            ##mutation1
+            RamdonNormalValue = np.random.normal(0, 1, 1)
+            RamdonNormalValueDifferent = np.random.normal(0, 1, Population_Child_Sigma.shape)
+            Population_Child_Sigma = np.exp( (1-tao)*RamdonNormalValue + tao*RamdonNormalValueDifferent )
+            ##mutation2
+            Population_Child_Weights = Population_Child_Weights + np.random.normal(0, Population_Child_Sigma, Population_Child_Sigma.shape)
+            
+            #step3 Evaluation
+            Population_Child_score = []
+            for i_Child in Population_Child_Weights :
+                """
+                可能可以平行計算
+                """
+                Population_Child_score.append( self._score(i_Child) )
+            BestNIndex = np.array( Population_Child_score ).argsort()[::-1][:ParentsSize]
+            Population_Parents_Weights = Population_Child_Weights[BestNIndex,:]
+            Population_Parents_Sigma = Population_Child_Sigma[BestNIndex,:]
+            
+            
+            #step4 check stop criteria
+            if self.cur_steps > self.max_steps:
+                print( 'Stop: Reach max_steps' )
+                break
+            
+            #print process 
+            if ((self.cur_steps ) % 1 == 0) and verbose:
+               self.best_weight =  Population_Child_Weights[BestNIndex,:][0]
+               self.best_score = self._score(Population_Child_Weights[BestNIndex,:][0])
+               print(self)
+            self.cur_steps = self.cur_steps + 1
+        return self.KerasModels, Population_Child_Weights[BestNIndex,:][0], self._score(Population_Child_Weights[BestNIndex,:][0])
+#%% 創建Tabu Search物件(Object)
+#print('Initial Obj. Val.: '  )
+#print('Initial Solution: \n' , '\n\n')
+
+MyES = ES(model, weights1, weights2, tabu_size=10 , max_steps=10, max_score=None)         
+
+ES_Optimized_Model, ES_Optimized_Weights, ES_Optimized_ObjVal  = MyES.run()
+    
+#%% test
+import numpy as np
+
+InitialSigma = 0.1
+ParentsSize = 15
+ChildSize = 100
+tao = 0.5
+weights1=[1,2,3]
+weights2=[4,5,6]
+Population_Parents_Weights = np.array([weights1,weights2])
+
+rows = ParentsSize
+#%% ES Step
+
+#Step1 initial     
+Population_Parents_Weights = np.array([weights1,weights2]) 
+Population_Parents_Sigma = np.full(shape = (ParentsSize, len(weights1)), fill_value = InitialSigma ) 
+Population_Parents_Weights, _ = Recombination(Population_Parents_Weights, Population_Parents_Sigma, rows = ParentsSize )
+
+#Step2 Child
+##Discrete Recombination
+Population_Child_Weights, Population_Child_Sigma = Recombination(Population_Parents_Weights, Population_Parents_Sigma, rows = ChildSize )
+##mutation1
+RamdonNormalValue = np.random.normal(0, 1, 1)
+RamdonNormalValueDifferent = np.random.normal(0, 1, Population_Child_Sigma.shape)
+Population_Child_Sigma = np.exp( (1-tao)*RamdonNormalValue + tao*RamdonNormalValueDifferent )
+##mutation2
+Population_Child_Weights = Population_Child_Weights + np.random.normal(0, Population_Child_Sigma, Population_Child_Sigma.shape)
+    
+#step3 Evaluation
+
+
+#step4 check stop criteria
+    
+
 #%% Loading Data
 from sklearn.datasets import load_breast_cancer
 return_X_y = load_breast_cancer()           
 data_x = return_X_y.data #569, 30
 data_y = return_X_y.target #569, 1 #0惡性 1良性
+
+#%% Dataset split
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.datasets import load_breast_cancer
+
+#資料集是以dictionary的形式存在
+cancer = load_breast_cancer()
+df_feat = pd.DataFrame(cancer['data'],columns=cancer['feature_names'])
+
+X = df_feat.iloc[:, ].values
+y = cancer['target']
+
+# Encoding categorical data
+from sklearn.preprocessing import LabelEncoder
+labelencoder_X_1 = LabelEncoder()
+y = labelencoder_X_1.fit_transform(y)
+
+# Splitting the dataset into the Training set and Test set
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state = 0)
+
+#Feature Scaling
+"""from sklearn.preprocessing import StandardScaler
+sc = StandardScaler()
+X_train = sc.fit_transform(X_train)
+X_test = sc.transform(X_test)"""
+
+#X_train.shape,X_test.shape,y_train.shape,y_test.shape
 
 #%% 創建神經網路
 import os
@@ -278,30 +341,22 @@ from keras.layers import Dense
 from keras.models import Sequential, Model as keras_models_Model
 
 model = Sequential()
-model.add(Dense(15, activation='relu', input_shape=(30,)))
-model.add(Dense(10, activation='relu'))
-model.add(Dense(5, activation='relu', name = 'IntermediateLayer'))
+model.add(Dense(1, activation='relu', input_shape=(30,)))
+#model.add(Dense(5, activation='relu'))
+#model.add(Dense(2, activation='relu', name = 'IntermediateLayer'))
 model.add(Dense(1, activation='sigmoid'))
 
-model.compile(optimizer='rmsprop', loss='binary_crossentropy', metrics=['accuracy'])
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 model.summary()
 
-model.fit(data_x, data_y, epochs=5, batch_size=1024)
+model.fit(X_train, y_train, epochs=5, batch_size=32)
+weights1 = model.get_weights()
 
-weights = model.get_weights()
-###
-#MetaHeuristic return optimized weights
-##
-model.set_weights(weights)
-test_on_batch = model.test_on_batch(data_x, data_y, sample_weight=None) # return ['loss', 'acc']
-test_on_batch[1]
-#%% 創建Tabu Search物件(Object)
-#print('Initial Obj. Val.: '  )
-#print('Initial Solution: \n' , '\n\n')
+model.compile(optimizer='sgd', loss='binary_crossentropy', metrics=['accuracy'])
+model.fit(X_train, y_train, epochs=5, batch_size=32)
+weights2 = model.get_weights()
 
-TSRun = TabuSearchCustomized(model, weights, tabu_size=10 , max_steps=10, max_score=None)         
 
-TS_Optimized_Model, TS_Optimized_Weights, TS_Optimized_ObjVal  = TSRun.run()
 
 #%% obtain the output of an intermediate layer
 #https://keras.io/getting-started/faq/?fbclid=IwAR3Zv35V-vmEy85anudOrlxCExXYwyG6cRL1UR0AaLPU6sZEoBjsbX-8LXQ#how-can-i-obtain-the-output-of-an-intermediate-layer
@@ -403,6 +458,7 @@ def UnflattenWeights(WeightsStrucure, ModifiedWeights):
             TempList = np.asarray(TempList)
             i_index = i_index + i_layer[0]
         else : # 該層權重的shape為二維 e.g. (30, 15)  
+
             TempList = ModifiedWeights[i_index:(i_index + (i_layer[0]*i_layer[1]))]
             TempList = np.reshape(TempList, i_layer )
             i_index = i_index + (i_layer[0]*i_layer[1])
