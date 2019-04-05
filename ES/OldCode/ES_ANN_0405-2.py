@@ -20,25 +20,50 @@ class ES:
     """
     __metaclass__ = ABCMeta
 
+    #default hyper parameters
+    InitialSigma = None
+    ParentsSize = None
+    ChildSize = None
+    tao = None
+    
+    #for input/output
+    KerasModels = None
+    WeightsStrucure = None   
+    weights = None
+    
+    #for record
     cur_steps = 0
-
-    tabu_size = None
-    tabu_list = None
-
-    initial_state = None
-    weight1 = None
-    weight2 = None
-    current = None
     best_weight = None
     best_score = None
-
-    max_steps = None
-    max_score = None
     
-    KerasModels = None
-    WeightsStrucure = None
+    def __init__(self, KerasModels, weights, InitialSigma = 0.1, ParentsSize = 15, ChildSize = 100, tao = 0.5):
+        """
+        :param KerasModels: a Keras model, like keras.engine.sequential.Sequential
+        :param weights: initial weights, should be a Keras model weight
+        """
+        self.KerasModels = KerasModels
     
-    def FlattenWeights(self, weights):
+        if isinstance(weights, list) :
+            self.WeightsStrucure, self.weights = self._FlattenWeights(weights)  
+        else:
+            raise TypeError('weights must be a list') 
+            
+        if all(isinstance(x, float) for x in [InitialSigma, tao]) and all(x > 0 for x in [InitialSigma, tao]):
+            self.InitialSigma = InitialSigma
+            self.tao = tao
+        else:
+            raise TypeError('InitialSigma & tao must be a positive float')
+            
+        if all(isinstance(x, int) for x in [ParentsSize, ChildSize]) and all(x > 0 for x in [ParentsSize, ChildSize]):
+            self.ParentsSize = ParentsSize
+            self.ChildSize = ChildSize
+            
+        else:
+            raise TypeError('ParentsSize & ChildSize must be a positive integer')
+            
+            
+        
+    def _FlattenWeights(self, weights):
         """
         flatten weights
         
@@ -57,7 +82,7 @@ class ES:
                     FlattenedWeights.extend(i_links)
         return WeightsStrucure, FlattenedWeights
 
-    def UnflattenWeights(self, WeightsStrucure, ModifiedWeights):
+    def _UnflattenWeights(self, WeightsStrucure, ModifiedWeights):
         """
         Unflatten(回復成原本的結構) weights  
         
@@ -78,41 +103,7 @@ class ES:
                 i_index = i_index + (i_layer[0]*i_layer[1])
             UnflattenWeights.append(TempList)
         return UnflattenWeights    
-    
-    def __init__(self, KerasModels, weights1, weights2, tabu_size, max_steps, max_score=None):
-        """
-        :param KerasModels: a Keras model, like keras.engine.sequential.Sequential
-        :param initial_state: initial state, should implement __eq__ or __cmp__
-        :param tabu_size: number of states to keep in tabu list
-        :param max_steps: maximum number of steps to run algorithm for
-        :param max_score: score to stop algorithm once reached
-        """
-        self.KerasModels = KerasModels
-        
-        if isinstance(weights1, list) & isinstance(weights2, list):
-            self.WeightsStrucure, self.weights1 = self.FlattenWeights(weights1)
-            _, self.weights2 = self.FlattenWeights(weights1)
-            self.WeightsStrucure = self.WeightsStrucure
-            
-        else:
-            raise TypeError('initial_state must be a list')
 
-        if isinstance(tabu_size, int) and tabu_size > 0:
-            self.tabu_size = tabu_size
-        else:
-            raise TypeError('Tabu size must be a positive integer')
-
-        if isinstance(max_steps, int) and max_steps > 0:
-            self.max_steps = max_steps
-        else:
-            raise TypeError('Maximum steps must be a positive integer')
-
-        if max_score is not None:
-            if isinstance(max_score, (int, float)):
-                self.max_score = float(max_score)
-            else:
-                raise TypeError('Maximum score must be a numeric type')
-        
 
     def __str__(self): 
         return ('ES: \n' +
@@ -122,21 +113,7 @@ class ES:
                (self.cur_steps, str(self.best_weight)[:100], self.best_score)
 
     def __repr__(self):
-        return self.__str__()
-
-    def _clear(self):
-        """
-        Resets the variables that are altered on a per-run basis of the algorithm
-
-        :return: None
-        """
-        self.cur_steps = 0
-        
-        #deque(maxlen=N) 创建了一个固定长度的队列，当有新的记录加入而队列已满时会自动移动除最老的那条记录
-        self.tabu_list = deque(maxlen=self.tabu_size) 
-        self.current = self.initial_state
-        self.best = self.initial_state
- 
+        return self.__str__() 
 
     def _best(self, neighborhood):
         """
@@ -147,7 +124,7 @@ class ES:
         """
         return neighborhood[argmax([self._score(x) for x in neighborhood])]
     
-    def Recombination(self, Population_Parents_Weights, Population_Parents_Sigma, rows): #GenerateParents
+    def _Recombination(self, Population_Parents_Weights, Population_Parents_Sigma, rows): #GenerateParents
         """
         Generate New Parents Polulation
         """
@@ -173,62 +150,44 @@ class ES:
         :param state: a state
         :return: objective function value of state
         """
+        print('ModifiedWeights', ModifiedWeights)
+        UnflattenedWeights = self._UnflattenWeights(WeightsStrucure = self.WeightsStrucure, ModifiedWeights = ModifiedWeights)
         
-        UnflattenedWeights = self.UnflattenWeights(WeightsStrucure = self.WeightsStrucure, ModifiedWeights = ModifiedWeights)
+        print('UnflattenedWeights', UnflattenedWeights)
         self.KerasModels.set_weights(UnflattenedWeights)
         test_on_batch = self.KerasModels.test_on_batch(X_train, y_train, sample_weight=None) # return ['loss', 'acc']
         return test_on_batch[1]
     
-    def _neighborhood(self):
-        
-        """
-        Returns list of all members of neighborhood of 
-        state, given self.current
-
-        :return: list of members of neighborhood (with length of _NumOfNeighbor) from current state
-        """ 
-        ##################
-        _NumOfNeighbor=50
-        ##################
-        
-        neighborhood = []        
-        for _ in range( _NumOfNeighbor ): #鄰居數
-            OneNeighbor = []
-            #找鄰居的方法:
-            for i in self.current:  
-                OneNeighbor.append( i * random.uniform(-1, 1 ) )
-            neighborhood.append(OneNeighbor) #feasible的鄰居放入備選list（neighborhood）
-            # neighborhood.append( [i * random.uniform(-1, 1 )  for i in self.current]]) 
-        return neighborhood
-    def run(self, verbose=True):
+    def run(self, weights, max_steps=100, verbose=10):
         """
         Conducts tabu search
-
-        :param verbose: indicates whether or not to print progress regularly
-        :return: Keras Models, best state and objective function value of best state
-        """
-        #self._clear()
+        :param verbose: int which indicates how many iter to show score
+        :param weights: initial weights, should be a Keras model weight
+        :return: best weights and best score"""
+    
+        #Step1 initial             
+        Population_Parents_Weights = np.array([self.weights, self.weights])   
+        Population_Parents_Sigma = np.full(shape = (self.ParentsSize, len(self.weights)), fill_value = self.InitialSigma ) 
+        Population_Parents_Weights, _ = self._Recombination(Population_Parents_Weights, Population_Parents_Sigma, rows = self.ParentsSize )
         
-        #Step1 initial     
+        import time
+        time.sleep(1) 
+        print(3)
         
-        Population_Parents_Weights = np.array([self.weights1, self.weights2])         
-        Population_Parents_Sigma = np.full(shape = (ParentsSize, len(self.weights1)), fill_value = InitialSigma ) 
-        Population_Parents_Weights, _ = self.Recombination(Population_Parents_Weights, Population_Parents_Sigma, rows = ParentsSize )
-     
         self.cur_steps = 0
         while True:
-            
                
+            print(4)
             #Step2 Child
             ##Discrete Recombination
-            Population_Child_Weights, Population_Child_Sigma = self.Recombination(Population_Parents_Weights, Population_Parents_Sigma, rows = ChildSize )
+            Population_Child_Weights, Population_Child_Sigma = self._Recombination(Population_Parents_Weights, Population_Parents_Sigma, rows = self.ChildSize )
             ##mutation1
             RamdonNormalValue = np.random.normal(0, 1, 1)
             RamdonNormalValueDifferent = np.random.normal(0, 1, Population_Child_Sigma.shape)
-            Population_Child_Sigma = np.exp( (1-tao)*RamdonNormalValue + tao*RamdonNormalValueDifferent )
+            Population_Child_Sigma = np.exp( (1-self.tao)*RamdonNormalValue + self.tao*RamdonNormalValueDifferent )
             ##mutation2
             Population_Child_Weights = Population_Child_Weights + np.random.normal(0, Population_Child_Sigma, Population_Child_Sigma.shape)
-            
+            print(5)            
             #step3 Evaluation
             Population_Child_score = []
             for i_Child in Population_Child_Weights :
@@ -240,67 +199,21 @@ class ES:
             Population_Parents_Weights = Population_Child_Weights[BestNIndex,:]
             Population_Parents_Sigma = Population_Child_Sigma[BestNIndex,:]
             
-            
             #step4 check stop criteria
-            if self.cur_steps > self.max_steps:
+            if self.cur_steps > max_steps:
                 print( 'Stop: Reach max_steps' )
                 break
             
             #print process 
-            if ((self.cur_steps ) % 1 == 0) and verbose:
+            if ((self.cur_steps ) % verbose == 0) and verbose:
                self.best_weight =  Population_Child_Weights[BestNIndex,:][0]
                self.best_score = self._score(Population_Child_Weights[BestNIndex,:][0])
                print(self)
             self.cur_steps = self.cur_steps + 1
-        return self.KerasModels, Population_Child_Weights[BestNIndex,:][0], self._score(Population_Child_Weights[BestNIndex,:][0])
-#%% 創建Tabu Search物件(Object)
-#print('Initial Obj. Val.: '  )
-#print('Initial Solution: \n' , '\n\n')
-
-MyES = ES(model, weights1, weights2, tabu_size=10 , max_steps=10, max_score=None)         
-
-ES_Optimized_Model, ES_Optimized_Weights, ES_Optimized_ObjVal  = MyES.run()
-    
-#%% test
-import numpy as np
-
-InitialSigma = 0.1
-ParentsSize = 15
-ChildSize = 100
-tao = 0.5
-weights1=[1,2,3]
-weights2=[4,5,6]
-Population_Parents_Weights = np.array([weights1,weights2])
-
-rows = ParentsSize
-#%% ES Step
-
-#Step1 initial     
-Population_Parents_Weights = np.array([weights1,weights2]) 
-Population_Parents_Sigma = np.full(shape = (ParentsSize, len(weights1)), fill_value = InitialSigma ) 
-Population_Parents_Weights, _ = Recombination(Population_Parents_Weights, Population_Parents_Sigma, rows = ParentsSize )
-
-#Step2 Child
-##Discrete Recombination
-Population_Child_Weights, Population_Child_Sigma = Recombination(Population_Parents_Weights, Population_Parents_Sigma, rows = ChildSize )
-##mutation1
-RamdonNormalValue = np.random.normal(0, 1, 1)
-RamdonNormalValueDifferent = np.random.normal(0, 1, Population_Child_Sigma.shape)
-Population_Child_Sigma = np.exp( (1-tao)*RamdonNormalValue + tao*RamdonNormalValueDifferent )
-##mutation2
-Population_Child_Weights = Population_Child_Weights + np.random.normal(0, Population_Child_Sigma, Population_Child_Sigma.shape)
-    
-#step3 Evaluation
+            
+        return self._UnflattenWeights(WeightsStrucure = self.WeightsStrucure, ModifiedWeights = Population_Child_Weights[BestNIndex,:][0]), self._score(Population_Child_Weights[BestNIndex,:][0])
 
 
-#step4 check stop criteria
-    
-
-#%% Loading Data
-from sklearn.datasets import load_breast_cancer
-return_X_y = load_breast_cancer()           
-data_x = return_X_y.data #569, 30
-data_y = return_X_y.target #569, 1 #0惡性 1良性
 
 #%% Dataset split
 import pandas as pd
@@ -331,8 +244,6 @@ sc = StandardScaler()
 X_train = sc.fit_transform(X_train)
 X_test = sc.transform(X_test)"""
 
-#X_train.shape,X_test.shape,y_train.shape,y_test.shape
-
 #%% 創建神經網路
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
@@ -341,21 +252,29 @@ from keras.layers import Dense
 from keras.models import Sequential, Model as keras_models_Model
 
 model = Sequential()
-model.add(Dense(1, activation='relu', input_shape=(30,)))
-#model.add(Dense(5, activation='relu'))
+model.add(Dense(10, activation='relu', input_shape=(30,)))
+
+model.add(Dense(5, activation='relu'))
 #model.add(Dense(2, activation='relu', name = 'IntermediateLayer'))
 model.add(Dense(1, activation='sigmoid'))
 
 model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 model.summary()
-
 model.fit(X_train, y_train, epochs=5, batch_size=32)
-weights1 = model.get_weights()
 
-model.compile(optimizer='sgd', loss='binary_crossentropy', metrics=['accuracy'])
+#%% run
+weights = model.get_weights() 
+MyES = ES(model,weights, InitialSigma = 0.1, ParentsSize = 15, ChildSize = 100, tao = 0.5)         
+
+# initialize
+ES_Optimized_Weights, ES_Optimized_ObjVal  = MyES.run(weights, max_steps=10, verbose = 1)
+
+# gradient-based optimize
 model.fit(X_train, y_train, epochs=5, batch_size=32)
-weights2 = model.get_weights()
+weights = model.get_weights() 
 
+# 
+ES_Optimized_Weights, ES_Optimized_ObjVal  = MyES.run(weights, max_steps=10, verbose = 10)
 
 
 #%% obtain the output of an intermediate layer
@@ -406,8 +325,7 @@ layer_output = get_3rd_layer_output([x, 1])[0]
 #%%
 #%%待續
 向量式運算找鄰近解
-Diverse: meta執行幾次後>Intense: 換成SGD
-meta結合最後一層LS
+Diverse: (meta + 最後一層OLS)執行幾次後 > Intense: 換成SGD
 找一個新的演算法
 
 #%% Path Relinking
@@ -420,7 +338,7 @@ meta結合最後一層LS
 
 #https://www.google.com/search?q=grasp+metaheuristic&rlz=1C1GCEU_zh-twTW836TW836&source=lnms&tbm=isch&sa=X&ved=0ahUKEwiglIa3xq7hAhUY5bwKHSQoCqQQ_AUIDigB&biw=1280&bih=631
 #%% flatten weights & Unflatten(回復成原本的結構) weights
-def FlattenWeights(weights):
+def _FlattenWeights(weights):
     """
     flatten weights
     
@@ -440,7 +358,7 @@ def FlattenWeights(weights):
                 FlattenedWeights.extend(i_links)
     return WeightsStrucure, FlattenedWeights
 
-def UnflattenWeights(WeightsStrucure, ModifiedWeights):
+def _UnflattenWeights(WeightsStrucure, ModifiedWeights):
     """
     Unflatten(回復成原本的結構) weights  
     
@@ -470,14 +388,4 @@ WeightsStrucure, FlattenedWeights = FlattenWeights(weights)
 #MetaHeuristic return optimized weights
 ##
 ModifiedWeights= FlattenedWeights        #ModifiedWeights為meteHeuristic修改過的權重
-UnflattenWeights = UnflattenWeights(WeightsStrucure, ModifiedWeights)
-#%%
-
-#%%
-#%%
-#%%
-#%%
-#%%
-#%%
-#%%
-#%%
+UnflattenWeights = _UnflattenWeights(WeightsStrucure, ModifiedWeights)
