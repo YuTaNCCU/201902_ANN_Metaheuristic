@@ -1,0 +1,2 @@
+activate tf_gpu
+jupyter lab
