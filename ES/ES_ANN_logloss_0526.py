@@ -192,15 +192,15 @@ def ModelCompile():
     sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
     tf.keras.backend.set_session(sess)
 
-    """model = Sequential()
+    model = Sequential()
     model.add(Dense(round(X_train.shape[1]/2), activation='relu', input_shape=(X_train.shape[1],)))
     model.add(Dense(round(X_train.shape[1]/2), activation='relu'))
     model.add(Dense(round(X_train.shape[1]/4), activation='relu', name = 'IntermediateLayer'))
-    model.add(Dense(1, activation='sigmoid'))"""
+    model.add(Dense(1, activation='sigmoid')) 
     
-    model = Sequential()
+    """model = Sequential()
     model.add(Dense(2, activation='relu', input_shape=(X_train.shape[1],)))
-    model.add(Dense(1, activation='sigmoid'))
+    model.add(Dense(1, activation='sigmoid'))"""
 
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     model.summary()
@@ -685,6 +685,11 @@ def self_run(weights, max_steps=5, verbose=10, useOLSReg = False, Population_Par
         ##mutation1
         RamdonNormalValue = np.random.normal(0, 1, 1)
         RamdonNormalValueDifferent = np.random.normal(0, 1, Population_Child_Sigma.shape)
+        """a=np.vstack((RamdonNormalValueDifferent, RamdonNormalValueDifferent))
+        for i in  range(Population_Child_Sigma.shape[1]-2):
+            a=np.vstack((a, RamdonNormalValueDifferent))
+        RamdonNormalValueDifferent=a.T"""
+        
         Population_Child_Sigma = Population_Child_Sigma * np.exp( (1-self_tao)*RamdonNormalValue + self_tao*RamdonNormalValueDifferent )
         ##mutation2
         Population_Child_Weights = Population_Child_Weights + np.random.normal(0, Population_Child_Sigma, Population_Child_Sigma.shape)
